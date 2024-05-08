@@ -1,0 +1,539 @@
+Codigo para usar datos de amplicones para describir la comunidad microbiana con
+Dada2
+
+####----------------------Lectura de datos---------------------------------####
+
+## Cargar las librerias a usar---------------------------------------------####
+library(dada2)
+packageVersion("dada2")
+
+## Ruta de los archivos ---------------------------------------------------####
+path <-"~/Cominidad_microbiana_estero_pargo/Data/02.Datos_clean/"
+list.files(path)
+
+## Archivos de las secuencias ---------------------------------------------####
+fnFs <- sort(list.files(path, pattern = "_R1_val_1.fq", full.names = TRUE))
+fnRs <- sort(list.files(path, pattern = "_R2_val_2.fq", full.names = TRUE))
+
+## Nombres de las muestras ------------------------------------------------####
+sample.names <- sapply(strsplit(basename(fnFs), "_val"), `[`, 1)
+
+## Ver los archivos y nombres de las muestras -----------------------------####
+cat("Los archivos de las secuencias son:\n")
+print(fnFs)
+cat("\nLos nombres de las muestras son:\n")
+print(sample.names)
+
+## Graficar la calidad de los archivos R1 y R2 ----------------------------####
+plotQualityProfile(fnFs[1:2])
+plotQualityProfile(fnRs[1:2])
+
+####-------------------------Filtrado de datos-----------------------------####
+
+## Asignar nombres a los archivos para los fastq filtrados ----------------####
+filtFs <- file.path(path, "filtered", paste0(sample.names, "_F_filt.fastq.gz"))
+filtRs <- file.path(path, "filtered", paste0(sample.names, "_R_filt.fastq.gz"))
+names(filtFs) <- sample.names
+names(filtRs) <- sample.names
+
+## Filtrado ---------------------------------------------------------------####
+out <- filterAndTrim(fnFs, filtFs, fnRs, filtRs,
+                     truncLen = c(290, 200),
+                     maxN = 0,
+                     maxEE = c(5, 5),
+                     truncQ = 2,
+                     rm.phix = TRUE,
+                     compress = TRUE,
+                     multithread = TRUE)
+
+## Mostrar los primeros resultados ----------------------------------------####
+head(out)
+
+
+####-------------------------Errores en las lecutras-----------------------####
+
+## Aprender de las tasas de error -----------------------------------------####
+errF <- learnErrors(filtFs, multithread = TRUE)
+errR <- learnErrors(filtRs, multithread = TRUE)
+
+## Graficar los errores ---------------------------------------------------####
+plotErrors(errF, nominalQ = TRUE)
+
+####-------------------------Variantes de asv------------------------------####
+
+## Inferencia de variantes ------------------------------------------------#### 
+dadaFs <- dada(filtFs, err = errF, multithread = TRUE)
+dadaRs <- dada(filtRs, err = errR, multithread = TRUE)
+
+## Inspeccionando el objeto dada ------------------------------------------####
+head(dadaFs[[1]])
+
+## Fusionando lecturas pareadas
+mergers <- mergePairs(dadaFs, filtFs, dadaRs, filtRs, verbose = TRUE)
+
+## Inspeccionar los datos de fusión de la primera muestra
+head(mergers[[1]])
+
+####-------------------------Tabla de variantes----------------------------####
+
+## Construir la tabla de secuencia (Una version nueva de la ASV table) ----####
+seqtab <- makeSequenceTable(mergers)
+dim(seqtab)
+
+## Inspeccionando los largos de la secuencia de distribución --------------####
+table(nchar(getSequences(seqtab)))
+
+####--------------------------Remover quimeras-----------------------------####
+
+# Remover Chimeras --------------------------------------------------------####
+seqtab.nochim <- removeBimeraDenovo(seqtab,
+                                    method ="consensus", 
+                                    multithread=TRUE, 
+                                    verbose=TRUE)
+
+dim(seqtab.nochim)
+
+sum(seqtab.nochim)/sum(seqtab)
+
+####--------------------------Resumen de datos-----------------------------####
+
+# Resumen del analisis ----------------------------------------------------####
+getN <- function(x) sum(getUniques(x))
+
+track<- cbind (out, 
+               sapply(dadaFs, getN), 
+               sapply(dadaRs, getN), 
+               sapply(mergers,getN), 
+               rowSums(seqtab.nochim))
+
+
+colnames(track)<- c("input", 
+                    "filtered",
+                    "denoisedF", 
+                    "denoisedR", 
+                    "merged",
+                    "nochim")
+
+rownames(track) <- sample.names
+
+head(track)
+
+####----------------------------Asignacion taxonomica-----------------------####
+
+## Asignando Taxonomia ----------------------------------------------------####
+taxa <- assignTaxonomy(seqtab.nochim, 
+                       "greengenes2_trainset.fa.gz", 
+                       multithread = TRUE)
+
+## Eliminando nombre de las filas de secuencias para visualización --------####
+taxa.print <- taxa
+rownames(taxa.print) <- NULL
+head(taxa.print)
+
+####----------------------Creando objeto de phyloseq ----------------------####
+
+# Carga de paqueterias a utilizar -----------------------------------------####
+
+library(tidyverse)
+library(vegan)
+library(ggplot2)
+library(DECIPHER); packageVersion("DECIPHER")
+library(phangorn); packageVersion("phangorn")
+library(phyloseq); packageVersion("phyloseq")
+
+# Carga de metadatos---------------------------------------------------------####
+metadata<-read_csv("00.Data/Metadata.csv") %>%
+  mutate_at(vars(depth), as.character) %>%
+  column_to_rownames("seqR1")
+
+# Hacer la filogenia ------------------------------------------------------####
+ASVs.nochim = DNAStringSet(colnames(seqtab.nochim))
+names(ASVs.nochim) = paste0("ASV", 1:ncol(seqtab.nochim))
+
+alignment = AlignSeqs(ASVs.nochim, anchor=NA, processors=30)
+
+phang.align <- phyDat(as(alignment, "matrix"), type="DNA")
+dm <- dist.ml(phang.align)
+treeNJ <- NJ(dm)
+
+fit = pml(treeNJ, data=phang.align)
+fitGTR_green <- update(fit, k=4, inv=0.2)
+
+# Hacer el objeto phyloseq ------------------------------------------------####
+load("00.Data/tree.green.RData")
+
+ASVs.nochim = DNAStringSet(colnames(seqtab.nochim))
+names(ASVs.nochim) = paste0("ASV", 1:ncol(seqtab.nochim))
+
+tmp.seqtab = seqtab.nochim
+colnames(tmp.seqtab) = names(ASVs.nochim)
+tmp.taxa = taxa.print
+rownames(tmp.taxa) = names(ASVs.nochim)
+
+ps.green.nochim = phyloseq(
+  otu_table(tmp.seqtab, taxa_are_rows=FALSE),
+  sample_data(metadata),
+  tax_table(tmp.taxa),
+  refseq(ASVs.nochim),
+  phy_tree(fitGTR_green$tree))
+
+# Creando nodulos de arbol fiogenetico--------------------------------------####
+ps = ps.green.nochim
+set.seed(1)
+is.rooted(phy_tree(ps))
+phy_tree(ps) <- root(phy_tree(ps), sample(taxa_names(ps), 1), 
+                     resolve.root = TRUE)
+is.rooted(phy_tree(ps))
+
+####----------------------NDMS exploratorio--------------------------------####
+
+# Carga de librerias-------------------------------------------------------####
+library(microbiome)
+library(patchwork)
+
+# Extraccion de metadatos -------------------------------------------------####
+metadata_green<-meta(ps) %>%
+  rownames_to_column("seqR1") %>%
+  mutate(season = str_replace(season, "flood", "Flood")) %>%
+  mutate(season = str_replace(season, "dry", "Dry")) 
+
+metadata_green %>%
+  select(month, season) 
+  
+# Extraccion de matriz de abundacia del objeto de phyloseq-----------------####
+OTU1 = as(otu_table(ps), "matrix")
+# transponer si es necesario 
+if(taxa_are_rows(ps)){OTU1 <- t(OTU1)}
+# Relacionar al data.frame
+OTUdf = as.data.frame(OTU1)
+
+# MDS ---------------------------------------------------------------------####
+OTUdf_prop <- OTUdf/rowSums(OTUdf)
+mds <- metaMDS(OTUdf_prop, distance = "bray", trymax = 9000)
+stressplot(mds) # checks that the fit is good
+
+en = envfit(mds, metadata_green, permutations = 9999, na.rm = TRUE)
+
+# Transcripcion a un formato largo  para ggplot ---------------------------####
+my.nmds <- data.frame("seqR1" = rownames(mds$points),"NMDS1" = mds$points[ ,1],
+                      "NMDS2" = mds$points[ ,2])
+my.nmds <- merge(my.nmds, metadata_green, by = "seqR1")
+
+# Exploratorio ------------------------------------------------------------####
+plot_nmds<-ggplot(data = my.nmds, aes(x = NMDS1, y = NMDS2))+
+  geom_point(aes(color = seqR1, shape=season),  size = 3, alpha = 0.5) + 
+  #scale_colour_manual(values = c("orange", "steelblue", "red")) +
+  theme(axis.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        panel.background = element_blank(), 
+        panel.border = element_rect(fill = NA, colour = "grey30"), 
+        legend.key = element_blank(), 
+        legend.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        legend.text = element_text(size = 9, colour = "grey30")) + 
+  labs(colour = "Season")
+plotly::ggplotly(plot_nmds)
+
+
+plot2<-ggplot(data = my.nmds, aes(x = NMDS1, y = NMDS2))+
+  geom_point(aes(color = season),  size = 5, alpha = 0.5) + 
+  scale_colour_manual(values = c("darkgreen", "purple")) +
+  theme(axis.title = element_text(size = 12, face = "bold", colour = "grey30"),
+        axis.title.y=element_blank(),
+        panel.background = element_blank(), 
+        panel.border = element_rect(fill = NA, colour = "grey30"), 
+        legend.key = element_blank(), 
+        legend.title = element_text(size = 12, face = "bold", colour = "grey30"), 
+        legend.text = element_text(size = 12, colour = "grey30")) + 
+  labs(colour = "Season")
+
+plot1<-ggplot(data = my.nmds, aes(x = NMDS1, y = NMDS2))+
+  geom_point(aes(color = zone),  size = 5, alpha = 0.5) + 
+  scale_colour_manual(values = c("darkorange", "steelblue", "red")) +
+  theme(axis.title = element_text(size = 12, face = "bold", colour = "grey30"),
+        panel.background = element_blank(), 
+        panel.border = element_rect(fill = NA, colour = "grey30"), 
+        legend.key = element_blank(), 
+        legend.title = element_text(size = 12, face = "bold", colour = "grey30"), 
+        legend.text = element_text(size = 12, colour = "grey30")) + 
+  labs(colour = "Zone") +
+  theme_bw() 
+
+plot3<-ggplot(data = my.nmds, aes(x = NMDS1, y = NMDS2))+
+  geom_point(aes(color = depth),  size = 5, alpha = 0.5) + 
+  scale_colour_manual(values =c("#999999", "#E69F00", "#56B4E9")) +
+  theme(axis.title = element_text(size = 12, face = "bold", colour = "grey30"),
+        axis.title.y=element_blank(),
+        panel.background = element_blank(), 
+        panel.border = element_rect(fill = NA, colour = "grey30"), 
+        legend.key = element_blank(), 
+        legend.title = element_text(size = 12, face = "bold", colour = "grey30"), 
+        legend.text = element_text(size = 12, colour = "grey30")) + 
+  labs(colour = "Depth")
+
+plot1 + plot2 + plot3 +
+  plot_layout(guides = 'collect') +
+  plot_annotation(tag_levels = 'A')
+
+
+my.stats <- anosim(x = as.data.frame(otu_table(ps3)), 
+                   grouping = metadata_green$depth, 
+                   permutations = 9999,
+                   distance = "bray")
+
+
+my.stats
+
+####-----------------------Creacion de histogramas----------------------####
+
+# Carga de librerias----------------------------------------------------####
+library(gridExtra)
+
+# Vector de color ---------------------------------------------------------####
+nice_colors = c("#999999", "#E69F00", "#56B4E9","#e98756","#c08160","#5800e6", 
+                "#CDDC49", "#C475D3", 
+                "#E94B30", "#233F57", "#FEE659", "#A1CFDD", "#F4755E", 
+                "#D6F6F7","#EB6D58", "#6898BF")
+
+# Histograma de reads por muestra -----------------------------------------####
+df = data.frame(ASVs=rowSums(otu_table(ps)>0), reads=sample_sums(ps), 
+                sample_data(ps))
+
+read.depths <- sample_sums(ps)
+hist(read.depths, breaks=20)
+
+ggplot(df, aes(x = depth, y = reads, color = ASVs)) +
+  geom_boxplot(color="black") + theme_bw() +
+  geom_jitter(width=.2, height=0)  + 
+  theme(axis.text.x = element_text(angle = 90)) +
+  #geom_hline(yintercept=10000, color= "purple", linetype='dashed') +
+  #geom_hline(yintercept=1000, color= "red", linetype='dashed') +
+  ggtitle("Reads sequenced by SampleGroup")
+
+# Rarefaccion --------------------------------------------------------------####
+OTU1 = as(otu_table(ps), "matrix")
+# transponer si es necesario
+if(taxa_are_rows(ps)){OTU1 <- t(OTU1)}
+# Correlacionarla al data.frame
+OTUdf = as.data.frame(OTU1)
+out = rarecurve(OTUdf, col=nice_colors, step=100 , lwd=2, ylab="ASVs", label=F,
+                main="Rarefaction Curve for all samples")
+
+# Relacion de ASVs y reads -------------------------------------------------####
+ggplot(df, aes(x = reads, y = ASVs)) +
+  theme_bw() + 
+  geom_point(aes(color=zone)) +
+  ggtitle("ASVs by Reads Overlapped")
+
+# Quitemos los reads -------------------------------------------------------####
+ps.pruned <- prune_samples(sample_sums(ps)>=1000, ps)
+as.data.frame(sample_sums(ps)) %>%
+  arrange(sample_sums(ps))
+ps.pruned
+
+# Histograma de reads por muestra -----------------------------------------####
+df = data.frame(ASVs=rowSums(otu_table(ps.pruned)>0), reads=sample_sums(ps.pruned), 
+                sample_data(ps.pruned))
+
+read.depths <- sample_sums(ps.pruned)
+hist(read.depths, breaks=20)
+
+ggplot(df, aes(x=reads)) + geom_histogram(bins=50, color='black', fill='grey') + 
+  theme_bw() +  geom_vline(xintercept=10000, color= "red", linetype='dashed') +
+  labs(title="Histogram: Reads per Sample") + xlab("Read Count")+
+  ylab("Sample Count")
+
+
+ggplot(df, aes(x = season, y = reads, color = ASVs, shape=zone)) +
+  geom_boxplot(color="black") + theme_bw() +
+  geom_jitter(width=.2, height=0)  + 
+  theme(axis.text.x = element_text(angle = 90)) +
+  #geom_hline(yintercept=10000, color= "purple", linetype='dashed') +
+  #geom_hline(yintercept=1000, color= "red", linetype='dashed') +
+  ggtitle("Reads sequenced by SampleGroup")
+
+OTU1 = as(otu_table(ps.pruned), "matrix")
+# transpose if necessary
+if(taxa_are_rows(ps.pruned)){OTU1 <- t(OTU1)}
+# Coerce to data.frame
+OTUdf = as.data.frame(OTU1)
+out = rarecurve(OTUdf, col=nice_colors, step=100 , lwd=2, ylab="ASVs", label=F,
+                main="Rarefaction Curve for all samples")
+
+ggplot(df, aes(x = reads, y = ASVs)) +
+  theme_bw() + 
+  geom_point(aes(color=zone)) +
+  ggtitle("ASVs by Reads Overlapped")
+
+####---------------------------Prevalencia-------------------------------####
+
+subset_prevalence<-function(muestra){
+  
+  # Calcular la prevalencia para cada caracteristica, extraida del data.frame
+  prevdf = apply(X = otu_table(muestra),
+                 MARGIN = ifelse(taxa_are_rows(muestra), yes = 1, no = 2),
+                 FUN = function(x){sum(x > 0)})
+  
+  # Asignar taxonomia y el total de lecturas al data.frame
+  prevdf = data.frame(Prevalence = prevdf,
+                      TotalAbundance = taxa_sums(muestra),
+                      tax_table(muestra))
+  
+  nose<-prevdf %>%
+    mutate(valor_desconocido = Prevalence / nsamples(ps.pruned))
+  
+  val1<-max(nose$valor_desconocido[nose$valor_desconocido == max(nose$valor_desconocido)])
+  
+  print(val1)
+  
+  val2<- ((val1*70) / 100)
+  
+  print(val2)
+  prevalenceThreshold = val2 * nsamples(muestra)
+  prevalenceThreshold
+  
+  print(prevalenceThreshold)
+  # Executar un filtro de prevalencia usando la funcion `prune_taxa()`
+  keepTaxa = rownames(prevdf)[(prevdf$Prevalence >= prevalenceThreshold)]
+  ff5taxa = prune_taxa(keepTaxa, muestra)
+  
+  
+  return(ff5taxa)
+  
+
+ps.pruned@phy_tree <- NULL
+
+ff5<-subset_samples(ps.pruned, zone == "Fringe" & 
+                      season == "flood" & depth == "5")  %>%
+  subset_prevalence()
+
+ff20<-subset_samples(ps.pruned, zone == "Fringe" & 
+                       season == "flood" & depth == "20")  %>%
+  subset_prevalence()
+
+
+ff40<-subset_samples(ps.pruned, zone == "Fringe" & 
+                       season == "flood" & depth == "40")  %>%
+  subset_prevalence()
+
+
+
+fd5<-subset_samples(ps.pruned, zone == "Fringe" & 
+                      season == "dry" & depth == "5")  %>%
+  subset_prevalence()
+
+
+
+fd20<-subset_samples(ps.pruned, zone == "Fringe" & 
+                       season == "dry" & depth == "20")  %>%
+  subset_prevalence()
+
+
+
+fd40<-subset_samples(ps.pruned, zone == "Fringe" & 
+                       season == "dry" & depth == "40")  %>%
+  subset_prevalence()
+
+
+# Zona de cuenca
+
+bf5<-subset_samples(ps.pruned, zone == "Basin" & 
+                      season == "flood" & depth == "5")  %>%
+  subset_prevalence()
+
+
+
+bf20<-subset_samples(ps.pruned, zone == "Basin" & 
+                       season == "flood" & depth == "20")  %>%
+  subset_prevalence()
+
+
+bf40<-subset_samples(ps.pruned, zone == "Basin" & 
+                       season == "flood" & depth == "40")   %>%
+  subset_prevalence()
+
+
+
+bd5<-subset_samples(ps.pruned, zone == "Basin" & 
+                      season == "dry" & depth == "5")   %>%
+  subset_prevalence()
+
+
+
+bd20<-subset_samples(ps.pruned, zone == "Basin" & 
+                       season == "dry" & depth == "20")  %>%
+  subset_prevalence()
+
+
+
+bd40<-subset_samples(ps.pruned, zone == "Basin" & 
+                       season == "dry" & depth == "40")  %>%
+  subset_prevalence()
+
+
+
+
+# Zona degradada
+
+if5<-subset_samples(ps.pruned, zone == "Impaired" & 
+                      season == "flood" & depth == "5")   %>%
+  subset_prevalence()
+
+
+
+if20<-subset_samples(ps.pruned, zone == "Impaired" & 
+                       season == "flood" & depth == "20")  %>%
+  subset_prevalence()
+
+
+
+if40<-subset_samples(ps.pruned, zone == "Impaired" & 
+                       season == "flood" & depth == "40")   %>%
+  subset_prevalence()
+
+
+
+id5<-subset_samples(ps.pruned, zone == "Impaired" & 
+                      season == "dry" & depth == "5")   %>%
+  subset_prevalence()
+
+
+id20<-subset_samples(ps.pruned, zone == "Impaired" & 
+                       season == "dry" & depth == "20")   %>%
+  subset_prevalence()
+
+
+
+id40<-subset_samples(ps.pruned, zone == "Impaired" & 
+                       season == "dry" & depth == "40")   %>%
+  subset_prevalence()
+
+
+
+# Combinar
+
+ps.pruned.prevalence<-merge_phyloseq(bd20, bd40, bd5, bf20, bf40, bf5, 
+                                     fd20, fd40, fd5, 
+ff20, ff40, ff5, id20, id40, id5, if20, if40, if5)
+
+# Compute prevalence of each feature, store as data.frame
+prevdf = apply(X = otu_table(ps.pruned.prevalence),
+               MARGIN = ifelse(taxa_are_rows(ps.pruned.prevalence), yes = 1, no = 2),
+               FUN = function(x){sum(x > 0)})
+
+# Add taxonomy and total read counts to this data.frame
+prevdf = data.frame(Prevalence = prevdf,
+                    TotalAbundance = taxa_sums(ps.pruned.prevalence),
+                    tax_table(ps.pruned.prevalence))
+
+
+ggplot(prevdf, aes(TotalAbundance, Prevalence / nsamples(ps.pruned.prevalence),color=Phylum)) +
+  # Include a guess for parameter
+  geom_hline(yintercept = 0.05, alpha = 0.5, linetype = 2) + geom_point(size = 2, alpha = 0.7) +
+  scale_x_log10() +  xlab("Total Abundance") + ylab("Prevalence [Frac. Samples]") +
+  facet_wrap(~Phylum) + theme(legend.position="none")
+
+
+OTUdf_prop[!complete.cases(OTUdf_prop), ]
+
+ps3 = subset_samples(ps.pruned.prevalence, sample_names(ps.pruned.prevalence) != 'zr2502_39_R1')
+ps2 = subset_samples(ps3, sample_names(ps3) != 'zr2502_33_R1')
+
