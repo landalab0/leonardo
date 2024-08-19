@@ -5,15 +5,34 @@ This document guides the analysis of microbial communities using the DADA2 pipel
 ## Load Required Packages
 
 ```r
-library(dada2)  # Paquete DADA2 para el análisis de datos de secuenciación
+library(dada2)
 ```
 
 ## Define File Paths
 
 ```r
-path <- "path/to/sequencing/data"
+path <- "~/citl_fastq_data_2/"
+list.files(path)
+
 fnFs <- sort(list.files(path, pattern="_R1.fastq", full.names = TRUE))
 fnRs <- sort(list.files(path, pattern="_R2.fastq", full.names = TRUE))
+```
+
+## Sample names
+
+```r 
+sample.names <- sapply(strsplit(basename(fnFs), "_R"), `[`, 1)
+cat("The sequence files are:\n")
+print(fnFs)
+cat("\nThe sample names are:\n")
+print(sample.names)
+```
+
+## Plot the quality of R1 and R2 files 
+
+```r 
+plotQualityProfile(fnFs[1:2])
+plotQualityProfile(fnRs[1:2])
 ```
 
 ## Quality Filtering
@@ -34,26 +53,17 @@ errF <- learnErrors(filtFs, multithread=TRUE)
 errR <- learnErrors(filtRs, multithread=TRUE)
 ```
 
-## Dereplication
-
-```r
-derepFs <- derepFastq(filtFs)
-derepRs <- derepFastq(filtRs)
-names(derepFs) <- sample.names
-names(derepRs) <- sample.names
-```
-
 ## Sample Inference
 
 ```r
-dadaFs <- dada(derepFs, err=errF, multithread=TRUE)
-dadaRs <- dada(derepRs, err=errR, multithread=TRUE)
+dadaFs <- dada(filtFs, err = errF, multithread = TRUE)
+dadaRs <- dada(filtRs, err = errR, multithread = TRUE)
 ```
 
 ## Merging Paired Reads
 
 ```r
-mergers <- mergePairs(dadaFs, derepFs, dadaRs, derepRs, verbose=TRUE)
+mergers <- mergePairs(dadaFs, filtFs, dadaRs, filtRs, verbose = TRUE)
 ```
 
 ## Constructing the Sequence Table
