@@ -1,8 +1,6 @@
 # Analysis of Microbial Communities Using DADA2
 
-Este documento guía el análisis de comunidades microbianas usando la pipeline 
-de DADA2 en R, que incluye filtrado de calidad, aprendizaje de errores, 
-dereplicación y la combinación de lecturas pareadas.
+This document guides the analysis of microbial communities using the DADA2 pipeline in R, including quality filtering, error learning, dereplication, and merging of paired reads.
 
 ## Load Required Packages
 
