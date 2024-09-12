@@ -1,5 +1,8 @@
 # Create a database from green genes to use in R 
 
+This document have the code in R lenguage to create a database from greengenes database.
+
+
 ## Load libraries
 
 
