@@ -759,7 +759,9 @@ library(patchwork)
 library(dplyr)
 library(tibble)
 ```
-## Load Library 
+## Analysis ALDEx2 temporality 
+
+Differential analysis using ALDEx2 of temporality with the statistical method of glm_anova
 
 ```r
 ps4<-run_aldex(ps3, group = "season", taxa_rank = "all", 
@@ -785,3 +787,170 @@ tabla_ps4<-cbind(tabla_ps4_1, tabla_ps4_2, tabla_ps4_3, tabla_ps4_4, tabla_ps4_5
 p_abd_ps4 <- plot_abundance(ps4, group = "season", label_level=1)
 season<-p_abd_ps4 + 
   scale_fill_manual(values = c("#606060FF","#D6ED17FF"))
+```
+
+## Analysis ALDEx2 zone (basin - fringe)
+
+```r
+ps5<-ps3 %>%
+  subset_samples(zone %in% c("Basin", "Fringe"))
+ps6<-run_aldex(ps5, group = "zone", taxa_rank = "all", 
+               method = "glm_anova")
+
+tabla_ps6<-marker_table(ps6)
+
+tabla_ps6_1<-tabla_ps6$feature
+tabla_ps6_2<-tabla_ps6$enrich_group
+tabla_ps6_3<-tabla_ps6$ef_F_statistic
+tabla_ps6_4<-tabla_ps6$pvalue
+tabla_ps6_5<-tabla_ps6$padj
+
+tabla_ps6<-cbind(tabla_ps6_1, tabla_ps6_2, tabla_ps6_3, tabla_ps6_4, tabla_ps6_5) %>%
+  as_tibble() %>%
+  add_column(comparacion="MD-ND") %>%
+  rename(feature=tabla_ps6_1) %>%
+  rename(enrich_group=tabla_ps6_2) %>%
+  rename(ef_F_statistic=tabla_ps6_3) %>%
+  rename(pvalue=tabla_ps6_4) %>%
+  rename(padj=tabla_ps6_5)
+
+p_abd_ps6 <- plot_abundance(ps6, group = "zone",  label_level=1)
+basin_fringe<-p_abd_ps6 + 
+  scale_fill_manual(values = c("#ff8c00","#FF3333"))
+```
+
+## Analysis ALDEx2 depth (40 - 5)
+
+```r
+ps7<-ps3 %>%
+  subset_samples(depth %in% c("40", "5"))
+
+ps8<-run_aldex(ps7, group = "depth", taxa_rank = "all", 
+               method = "glm_anova")
+
+tabla_ps8<-marker_table(ps8)
+
+tabla_ps8_1<-tabla_ps8$feature
+tabla_ps8_2<-tabla_ps8$enrich_group
+tabla_ps8_3<-tabla_ps8$ef_F_statistic
+tabla_ps8_4<-tabla_ps8$pvalue
+tabla_ps8_5<-tabla_ps8$padj
+
+tabla_ps8<-cbind(tabla_ps8_1, tabla_ps8_2, tabla_ps8_3, tabla_ps8_4, tabla_ps8_5) %>%
+  as_tibble() %>%
+  add_column(comparacion="5-40") %>%
+  rename(feature=tabla_ps8_1) %>%
+  rename(enrich_group=tabla_ps8_2) %>%
+  rename(ef_F_statistic=tabla_ps8_3) %>%
+  rename(pvalue=tabla_ps8_4) %>%
+  rename(padj=tabla_ps8_5)
+
+
+p_abd_ps8 <- plot_abundance(ps8, group = "depth", label_level=1)
+cuarenta_cinco<-p_abd_ps8 + 
+  scale_fill_manual(values = c("#00f0b5","#f61067"))
+```
+
+## Analysis ALDEx2 depth (5 - 20)
+
+```r
+ps9<-ps3 %>%
+  subset_samples(depth %in% c("5", "20"))
+
+ps10<-run_aldex(ps9, group = "depth", taxa_rank = "all", 
+                method = "glm_anova")
+
+tabla_ps10<-marker_table(ps10)
+
+tabla_ps10_1<-tabla_ps10$feature
+tabla_ps10_2<-tabla_ps10$enrich_group
+tabla_ps10_3<-tabla_ps10$ef_F_statistic
+tabla_ps10_4<-tabla_ps10$pvalue
+tabla_ps10_5<-tabla_ps10$padj
+
+tabla_ps10<-cbind(tabla_ps10_1, tabla_ps10_2, tabla_ps10_3, tabla_ps10_4, tabla_ps10_5) %>%
+  as_tibble() %>%
+  add_column(comparacion="5-20") %>%
+  rename(feature=tabla_ps10_1) %>%
+  rename(enrich_group=tabla_ps10_2) %>%
+  rename(ef_F_statistic=tabla_ps10_3) %>%
+  rename(pvalue=tabla_ps10_4) %>%
+  rename(padj=tabla_ps10_5)
+
+p_abd_ps10 <- plot_abundance(ps10, group = "depth", label_level=1)
+cinco_veinte<-p_abd_ps10 + 
+  scale_fill_manual(values = c("#5e239d", "#f61067"))
+```
+
+## Analysis ALDEx2 zone (basin - impaired)
+
+```r
+ps11<-ps3 %>%
+  subset_samples(zone %in% c("Basin", "Impaired"))
+
+ps12<-run_aldex(ps11, group = "zone", taxa_rank = "all", 
+                method = "glm_anova")
+
+tabla_ps12<-marker_table(ps12)
+
+tabla_ps12_1<-tabla_ps12$feature
+tabla_ps12_2<-tabla_ps12$enrich_group
+tabla_ps12_3<-tabla_ps12$ef_F_statistic
+tabla_ps12_4<-tabla_ps12$pvalue
+tabla_ps12_5<-tabla_ps12$padj
+
+tabla_ps12<-cbind(tabla_ps12_1, tabla_ps12_2, tabla_ps12_3, tabla_ps12_4, tabla_ps12_5) %>%
+  as_tibble() %>%
+  add_column(comparacion="MD-D") %>%
+  rename(feature=tabla_ps12_1) %>%
+  rename(enrich_group=tabla_ps12_2) %>%
+  rename(ef_F_statistic=tabla_ps12_3) %>%
+  rename(pvalue=tabla_ps12_4) %>%
+  rename(padj=tabla_ps12_5)
+
+p_abd_ps12 <- plot_abundance(ps12, group = "zone",  label_level=1)
+basin_impaired<-p_abd_ps12 + 
+  scale_fill_manual(values = c("#ff8c00","#4682b4"))
+```
+
+## Analysis ALDEx2 zone (fringe - impaired)
+
+```r
+ps13<-ps3 %>%
+  subset_samples(zone %in% c("Fringe", "Impaired"))
+
+ps14<-run_aldex(ps13, group = "zone", taxa_rank = "all", 
+                method = "glm_anova")
+
+tabla_ps14<-marker_table(ps14)
+
+tabla_ps14_1<-tabla_ps14$feature
+tabla_ps14_2<-tabla_ps14$enrich_group
+tabla_ps14_3<-tabla_ps14$ef_F_statistic
+tabla_ps14_4<-tabla_ps14$pvalue
+tabla_ps14_5<-tabla_ps14$padj
+
+tabla_ps14<-cbind(tabla_ps14_1, tabla_ps14_2, tabla_ps14_3, tabla_ps14_4, tabla_ps14_5)%>%
+  as_tibble() %>%
+  add_column(comparacion="ND-D") %>%
+  rename(feature=tabla_ps14_1) %>%
+  rename(enrich_group=tabla_ps14_2) %>%
+  rename(ef_F_statistic=tabla_ps14_3) %>%
+  rename(pvalue=tabla_ps14_4) %>%
+  rename(padj=tabla_ps14_5)
+
+
+p_abd_ps14 <- plot_abundance(ps14, group = "zone",  label_level=1)
+fringe_impaired<-p_abd_ps14 + 
+  scale_fill_manual(values = c("#FF3333","#4682b4"))
+```
+
+## Combine multiple plots
+
+```r
+ (basin_fringe + basin_impaired ) / (fringe_impaired + season) /
+  (cinco_veinte + cuarenta_cinco) +
+  plot_annotation(tag_levels = 'A') +
+  plot_layout(guides = 'collect') +
+  plot_layout(axis_titles = "collect")
+```
