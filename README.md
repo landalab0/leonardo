@@ -4,11 +4,15 @@ This document guides the analysis of microbial communities using the DADA2 pipel
 
 ## Load Required Packages
 
+Load the required packages
+
 ```r
 library(dada2)
 ```
 
 ## Define File Paths
+
+Define the following path variable so that it points to the extracted directory and we read in the names of the fastq files, and perform some string manipulation to get lists of the forward and reverse fastq files in matched order
 
 ```r
 path <- "~/citl_fastq_data_2/"
@@ -20,6 +24,8 @@ fnRs <- sort(list.files(path, pattern="_R2.fastq", full.names = TRUE))
 
 ## Sample names
 
+Extract the sample names of the fasq files
+
 ```r 
 sample.names <- sapply(strsplit(basename(fnFs), "_R"), `[`, 1)
 cat("The sequence files are:\n")
@@ -30,12 +36,16 @@ print(sample.names)
 
 ## Plot the quality of R1 and R2 files 
 
+View visualizing the quality profiles of the forward and reverse reads
+
 ```r 
 plotQualityProfile(fnFs[1:2])
 plotQualityProfile(fnRs[1:2])
 ```
 
 ## Quality Filtering
+
+We proceed with filtering and trimming the reads according to what is observed in the quality plots. Specifically, we use the arguments truncLen=(indicate the average trimming length for each read), maxN=(the maximum number of ambiguous bases), maxEE= (the maximum number of errors) , and rm.phix=(whether we want to remove sequences belonging to the internal Illumina control).
 
 ```r
 filtFs <- file.path(path, "filtered", basename(fnFs))
@@ -48,12 +58,16 @@ out <- filterAndTrim(fnFs, filtFs, fnRs, filtRs, truncLen=c(240,160),
 
 ## Learn the Error Rates
 
+Generating a probabilistic error model, it can filter erroneous reads and thus use the remaining ones directly for the taxonomic classification stage. This part of the method allows us to achieve higher resolution compared to OTU-based analyses
+
 ```r
 errF <- learnErrors(filtFs, multithread=TRUE)
 errR <- learnErrors(filtRs, multithread=TRUE)
 ```
 
 ## Sample Inference
+
+The inference of Amplicon Sequence Variants (ASVs).
 
 ```r
 dadaFs <- dada(filtFs, err = errF, multithread = TRUE)
@@ -62,11 +76,15 @@ dadaRs <- dada(filtRs, err = errR, multithread = TRUE)
 
 ## Merging Paired Reads
 
+We merge the R1 and R2 reads
+
 ```r
 mergers <- mergePairs(dadaFs, filtFs, dadaRs, filtRs, verbose = TRUE)
 ```
 
 ## Constructing the Sequence Table
+
+Generate a sequence table that we will use later
 
 ```r
 seqtab <- makeSequenceTable(mergers)
@@ -74,12 +92,16 @@ seqtab <- makeSequenceTable(mergers)
 
 ## Remove Chimeras
 
+Remove artifact sequences resulting from PCR amplification
+
 ```r
 seqtab.nochim <- removeBimeraDenovo(seqtab, method="consensus", 
                                     multithread=TRUE, verbose=TRUE)
 ```
 
 ## Track Reads Through the Pipeline
+
+Final check of our progress
 
 ```r
 getN <- function(x) sum(getUniques(x))
@@ -92,6 +114,8 @@ rownames(track) <- sample.names
 ```
 
 # Taxonomic Assignment
+
+The sequence table without chimeras is the table we use for taxonomic classification. We use Greengenes databes to sequence classification
 
 ```r
 taxa <- assignTaxonomy(seqtab.nochim, 
@@ -197,7 +221,7 @@ metadata_green %>%
   select(month, season)
 ```
 
-## Extract OTU matrix from phyloseq object
+## Extract ASV matrix from phyloseq object
 
 ```r
 ASV1 = as(asv_table(ps), "matrix")
@@ -293,6 +317,8 @@ my.stats
 
 # Prevalence 
 
+We can look at is the prevalence of the taxonomic features
+
 ## Load packages
 
 ```r
@@ -303,6 +329,8 @@ library(ggplot2)
 ```
 
 ## Filtering Taxa
+
+We generate a vector with all the taxa that we want to filter
 
 ```r
 ps.pruned.1 <- subset_taxa(ps.pruned, !is.na(Phylum) & !Phylum %in% 
@@ -355,7 +383,7 @@ ylab("Prevalence [Frac. Samples]") +
 facet_wrap(~Phylum) + theme(legend.position="none")
 ```
 
-##  Define prevalence threshold as 10% of total samples
+##  Define prevalence threshold as 2% of total samples
 
 ```r
 prevalenceThreshold = 0.02 * nsamples(ps1)
